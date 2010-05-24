@@ -1,0 +1,33 @@
+name: Mif.TreeGrid
+ 
+web: [http://mifjs.net/treegrid/](http://mifjs.net/treegrid/)
+ 
+description: javascript tree for web applications
+ 
+authors: [Anton Samoylov](http://mifjs.net)
+ 
+license: MIT License
+ 
+copyright: &copy; [Anton Samoylov](http://mifjs.net)
+ 
+author: magmoro
+ 
+category: Interface
+ 
+tags: [tree, application]
+ 
+sources:
+  - "Source/Core/Mif.TreeGrid.js"
+  - "Source/Core/Mif.TreeGrid.Node.js"
+  - "Source/Core/Mif.TreeGrid.Load.js"
+  - "Source/Core/Mif.TreeGrid.Draw.js"
+  - "Source/Style/Mif.TreeGrid.Sheet.js"
+  - "Source/Image/Mif.TreeGrid.Image.js"
+  
+
+demo: http://mifjs.net/treegrid/Demos/index.html
+docs: http://mifjs.net/treegrid/Docs/index.html
+
+current: dev
+
+
