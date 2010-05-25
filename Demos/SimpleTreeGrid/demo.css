@@ -11,8 +11,8 @@ html, body{
 	padding:0;
 }
 
-#tree{
+#treegrid{
 height:200px;
-width:200px;
+width:700px;
 position:relative;
 }

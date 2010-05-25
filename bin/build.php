@@ -13,7 +13,7 @@ $pkg = new Packager($files);
 $list = array();
 $image = '';
 $script = '';
-$files = $pkg->complete_files(array_merge($pkg->get_all_files('Core'), $pkg->get_all_files('Mif.Tree')));
+$files = $pkg->complete_files(array_merge($pkg->get_all_files('Core'), $pkg->get_all_files('Mif.TreeGrid')));
 print_r($files);
 foreach($files as $file){
 	$path = '..'.array_pop(explode('../..', $pkg->get_file_path($file)));

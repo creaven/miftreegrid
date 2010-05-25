@@ -1,19 +1,21 @@
 window.addEvent('domready',function(){
 	
-	tree = new Mif.Tree().inject('tree');
-	//tree = new Mif.Tree({container: 'tree'});
+	treegrid = new Mif.TreeGrid({
+		cols: ['col1', 'col2', 'col3']
+	}).inject('treegrid');
+	//treegrid = new Mif.TreeGrid({container: 'treegrid'});
 	
 	var json = [
-		{"name": "root", "children": [
-			{"name": "node1"},
-			{"name": "node2", "children": [
-				{"name": "node2.1", "open": true},
-				{"name": "node2.2"}
+		{"fields": ["root", "root col2", "root col3"], "children": [
+			{"fields": ["node1", "node1 col2", "node1 col3"]},
+			{"fields": ["node2", "node2 col2", "node2 col3"], "children": [
+				{"fields": ["node2.1", "node2.1 col2","node2.1 col3"], "open": true},
+				{"fields": ["node2.2", "node2.2 col2", "node2.2 col3"]}
 			]},
-			{"name": "node3"}
+			{"fields": ["node3", "node3 col2", "node3 col3"]}
 		]}
 	];
 	
-	tree.load({json: json});
+	treegrid.load({json: json});
 	
 });

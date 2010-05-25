@@ -22,7 +22,7 @@ sources:
   - "Source/Core/Mif.TreeGrid.Load.js"
   - "Source/Core/Mif.TreeGrid.Draw.js"
   - "Source/Style/Mif.TreeGrid.Sheet.js"
-  - "Source/Image/Mif.TreeGrid.Image.js"
+;  - "Source/Image/Mif.TreeGrid.Image.js"
   
 
 demo: http://mifjs.net/treegrid/Demos/index.html

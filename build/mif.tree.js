@@ -6662,104 +6662,149 @@ Mif.Tree.prototype.Node = Mif.Tree.Node = new Class({
 /*
 ---
  
-name: Mif.Tree.Load
-description: load tree from json
+name: Mif.Tree.Selection
+description: tree nodes selection
 license: MIT-Style License (http://mifjs.net/license.txt)
 copyright: Anton Samoylov (http://mifjs.net)
 authors: Anton Samoylov (http://mifjs.net)
 requires: Mif.Tree
-provides: Mif.Tree.Load
+provides: Mif.Tree.Selection
  
 ...
 */
 
 Mif.Tree.implement({
-		
-	readJSON: function(children, parent){
-		for( var i = children.length; i--; ){
-			var child = children[i];
-			var subChildren = child.children;
-			var node = new this.Node({
-				tree: this,
-				parentNode: parent
-			}, child);
-			if( this.forest || parent != undefined){
-				parent.children.unshift(node);
-			}else{
-				this.root = node;
-			}
-			if(subChildren && subChildren.length){
-				this.readJSON(subChildren, node);
-			}
-		}
-		if(parent) parent.property.loaded = true;
-		//this.fireEvent('loadChildren', parent);
-	}
 	
-});
-
-Mif.Tree.implement({
-
-	load: function(options){
-		var tree = this;
-		this.loadOptions = this.loadOptions || $lambda({});
-		function success(json){
-			var parent = null;
-			if(tree.forest){
-				tree.root = new tree.Node({
-					tree: tree,
-					parentNode: null
-				}, {});
-				parent = tree.root;
-			}
-			tree.readJSON(json, parent);
-			tree['draw' + (tree.forest ? 'ForestRoot' : 'Root')]();
-			tree.$getIndex();
-			tree.fireEvent('load');
-			return tree;
+	initSelection: function(){
+		this.options.defaults.selectClass = '';
+		this.wrapper.addEvent('mousedown', this.attachSelect.bindWithEvent(this));
+	},
+	
+	attachSelect: function(event){
+		if(!['icon', 'name', 'node'].contains(this.mouse.target)) return;
+		var node = this.mouse.node;
+		if(!node) return;
+		this.select(node);
+	},
+	
+	select: function(node) {
+		if(!node) return this;
+		var current = this.selected;
+		if (current == node) return this;
+		if (current) {
+			current.select(false);
+			this.fireEvent('unSelect', [current]).fireEvent('selectChange', [current, false]);
 		}
-		options = $extend($extend({
-			isSuccess: $lambda(true),
-			secure: true,
-			onSuccess: success,
-			method: 'get'
-		}, this.loadOptions()), options);
-		if(options.json) return success(options.json);
-		new Request.JSON(options).send();
+		this.selected = node;
+		node.select(true);
+		this.fireEvent('select', [node]).fireEvent('selectChange', [node, true]);
 		return this;
+	},
+	
+	unselect: function(){
+		var current = this.selected;
+		if(!current) return this;
+		this.selected = false;
+		current.select(false);
+		this.fireEvent('unSelect', [current]).fireEvent('selectChange', [current, false]);
+		return this;
+	},
+	
+	getSelected: function(){
+		return this.selected;
+	},
+	
+	isSelected: function(node){
+		return node.isSelected();
 	}
 	
 });
 
 Mif.Tree.Node.implement({
+		
+	select: function(state) {
+		this.property.selected = state;
+		if(!this.tree.isUpdatable(this)) return;
+		this.getDOM('node')[(state ? 'add' : 'remove')+'Class'](this.selectClass||'mif-tree-node-selected');
+	},
 	
-	load: function(options){
-		this.$loading = true;
-		options = options||{};
-		//this.addType('loader');
-		var self = this;
-		function success(json){
-			self.tree.readJSON(json, self);
-			delete self.$loading;
-			self.property.loaded = true;
-			//self.removeType('loader');
-			self.tree.update(self);
-			self.fireEvent('load');
-			self.tree.fireEvent('loadNode', self);
-			return self;
-		}
-		options = $extend($extend($extend({
-			isSuccess: $lambda(true),
-			secure: true,
-			onSuccess: success,
-			method: 'get'
-		}, this.tree.loadOptions(this)), this.loadOptions), options);
-		if(options.json) return success(options.json);
-		new Request.JSON(options).send();
-		return this;
+	isSelected: function(){
+		return this.property.selected;
 	}
 	
 });
+/*
+---
+ 
+name: Mif.Tree.Hover
+description: hover(mouseover/mouseout) events/effects
+license: MIT-Style License (http://mifjs.net/license.txt)
+copyright: Anton Samoylov (http://mifjs.net)
+authors: Anton Samoylov (http://mifjs.net)
+requires: Mif.Tree
+provides: Mif.Tree.Hover
+ 
+...
+*/
+
+Mif.Tree.implement({
+	
+	initHover: function(){
+		this.options.defaults.hoverClass = '';
+		this.wrapper.addEvent('mousemove', this.hover.bind(this));
+		this.wrapper.addEvent('mouseout', this.hover.bind(this));
+		this.defaultHoverState = {
+			toggle: false,
+			checkbox: false,
+			icon: false,
+			name: false,
+			node: false
+		};
+		this.hoverState = $unlink(this.defaultHoverState);
+	},
+	
+	hover: function(){
+		var cnode = this.mouse.node;
+		var ctarget = this.mouse.target;
+		$each(this.hoverState, function(node, target, state){
+			if(node == cnode && (target == 'node' || target == ctarget)) return;
+			if(node) {
+				Mif.Tree.Hover.out(node, target);
+				state[target] = false;
+				this.fireEvent('hover', [node, target, 'out']);
+			}
+			if(cnode && (target == 'node'||target == ctarget)) {
+				Mif.Tree.Hover.over(cnode, target);
+				state[target] = cnode;
+				this.fireEvent('hover', [cnode, target, 'over']);
+			}else{
+				state[target] = false;
+			}
+		}, this);
+	},
+	
+	updateHover: function(){
+		this.hoverState = $unlink(this.defaultHoverState);
+		this.hover();
+	}
+	
+});
+
+Mif.Tree.Hover = {
+	
+	over: function(node, target){
+		var nodeEl = node.getDOM('node');
+		nodeEl.addClass((node.property.hoverClass || 'mif-tree-hover') + '-' + target);
+		if(node.property.selected) nodeEl.addClass((node.hoverClass || 'mif-tree-hover') + '-selected-' + target);
+	},
+	
+	out: function(node, target){
+		node.getDOM('node')
+		.removeClass((node.property.hoverClass || 'mif-tree-hover') + '-' + target)
+		.removeClass((node.property.hoverClass || 'mif-tree-hover') + '-selected-' + target);
+	}
+	
+};
 /*
 ---
  
@@ -6887,1711 +6932,320 @@ Mif.Tree.implement({
 /*
 ---
  
-name: Mif.Tree.Hover
-description: hover(mouseover/mouseout) events/effects
+name: Mif.Tree.Load
+description: load tree from json
 license: MIT-Style License (http://mifjs.net/license.txt)
 copyright: Anton Samoylov (http://mifjs.net)
 authors: Anton Samoylov (http://mifjs.net)
 requires: Mif.Tree
-provides: Mif.Tree.Hover
+provides: Mif.Tree.Load
  
 ...
 */
 
 Mif.Tree.implement({
-	
-	initHover: function(){
-		this.options.defaults.hoverClass = '';
-		this.wrapper.addEvent('mousemove', this.hover.bind(this));
-		this.wrapper.addEvent('mouseout', this.hover.bind(this));
-		this.defaultHoverState = {
-			toggle: false,
-			checkbox: false,
-			icon: false,
-			name: false,
-			node: false
-		};
-		this.hoverState = $unlink(this.defaultHoverState);
-	},
-	
-	hover: function(){
-		var cnode = this.mouse.node;
-		var ctarget = this.mouse.target;
-		$each(this.hoverState, function(node, target, state){
-			if(node == cnode && (target == 'node' || target == ctarget)) return;
-			if(node) {
-				Mif.Tree.Hover.out(node, target);
-				state[target] = false;
-				this.fireEvent('hover', [node, target, 'out']);
-			}
-			if(cnode && (target == 'node'||target == ctarget)) {
-				Mif.Tree.Hover.over(cnode, target);
-				state[target] = cnode;
-				this.fireEvent('hover', [cnode, target, 'over']);
+		
+	readJSON: function(children, parent){
+		for( var i = children.length; i--; ){
+			var child = children[i];
+			var subChildren = child.children;
+			var node = new this.Node({
+				tree: this,
+				parentNode: parent
+			}, child);
+			if( this.forest || parent != undefined){
+				parent.children.unshift(node);
 			}else{
-				state[target] = false;
+				this.root = node;
 			}
-		}, this);
-	},
-	
-	updateHover: function(){
-		this.hoverState = $unlink(this.defaultHoverState);
-		this.hover();
+			if(subChildren && subChildren.length){
+				this.readJSON(subChildren, node);
+			}
+		}
+		if(parent) parent.property.loaded = true;
+		//this.fireEvent('loadChildren', parent);
 	}
 	
 });
 
-Mif.Tree.Hover = {
-	
-	over: function(node, target){
-		var nodeEl = node.getDOM('node');
-		nodeEl.addClass((node.property.hoverClass || 'mif-tree-hover') + '-' + target);
-		if(node.property.selected) nodeEl.addClass((node.hoverClass || 'mif-tree-hover') + '-selected-' + target);
-	},
-	
-	out: function(node, target){
-		node.getDOM('node')
-		.removeClass((node.property.hoverClass || 'mif-tree-hover') + '-' + target)
-		.removeClass((node.property.hoverClass || 'mif-tree-hover') + '-selected-' + target);
-	}
-	
-};
-/*
----
- 
-name: Mif.Tree.Selection
-description: tree nodes selection
-license: MIT-Style License (http://mifjs.net/license.txt)
-copyright: Anton Samoylov (http://mifjs.net)
-authors: Anton Samoylov (http://mifjs.net)
-requires: Mif.Tree
-provides: Mif.Tree.Selection
- 
-...
-*/
-
 Mif.Tree.implement({
-	
-	initSelection: function(){
-		this.options.defaults.selectClass = '';
-		this.wrapper.addEvent('mousedown', this.attachSelect.bindWithEvent(this));
-	},
-	
-	attachSelect: function(event){
-		if(!['icon', 'name', 'node'].contains(this.mouse.target)) return;
-		var node = this.mouse.node;
-		if(!node) return;
-		this.select(node);
-	},
-	
-	select: function(node) {
-		if(!node) return this;
-		var current = this.selected;
-		if (current == node) return this;
-		if (current) {
-			current.select(false);
-			this.fireEvent('unSelect', [current]).fireEvent('selectChange', [current, false]);
+
+	load: function(options){
+		var tree = this;
+		this.loadOptions = this.loadOptions || $lambda({});
+		function success(json){
+			var parent = null;
+			if(tree.forest){
+				tree.root = new tree.Node({
+					tree: tree,
+					parentNode: null
+				}, {});
+				parent = tree.root;
+			}
+			tree.readJSON(json, parent);
+			tree['draw' + (tree.forest ? 'ForestRoot' : 'Root')]();
+			tree.$getIndex();
+			tree.fireEvent('load');
+			return tree;
 		}
-		this.selected = node;
-		node.select(true);
-		this.fireEvent('select', [node]).fireEvent('selectChange', [node, true]);
+		options = $extend($extend({
+			isSuccess: $lambda(true),
+			secure: true,
+			onSuccess: success,
+			method: 'get'
+		}, this.loadOptions()), options);
+		if(options.json) return success(options.json);
+		new Request.JSON(options).send();
 		return this;
-	},
-	
-	unselect: function(){
-		var current = this.selected;
-		if(!current) return this;
-		this.selected = false;
-		current.select(false);
-		this.fireEvent('unSelect', [current]).fireEvent('selectChange', [current, false]);
-		return this;
-	},
-	
-	getSelected: function(){
-		return this.selected;
-	},
-	
-	isSelected: function(node){
-		return node.isSelected();
 	}
 	
 });
 
 Mif.Tree.Node.implement({
-		
-	select: function(state) {
-		this.property.selected = state;
-		if(!this.tree.isUpdatable(this)) return;
-		this.getDOM('node')[(state ? 'add' : 'remove')+'Class'](this.selectClass||'mif-tree-node-selected');
-	},
 	
-	isSelected: function(){
-		return this.property.selected;
+	load: function(options){
+		this.$loading = true;
+		options = options||{};
+		//this.addType('loader');
+		var self = this;
+		function success(json){
+			self.tree.readJSON(json, self);
+			delete self.$loading;
+			self.property.loaded = true;
+			//self.removeType('loader');
+			self.tree.update(self);
+			self.fireEvent('load');
+			self.tree.fireEvent('loadNode', self);
+			return self;
+		}
+		options = $extend($extend($extend({
+			isSuccess: $lambda(true),
+			secure: true,
+			onSuccess: success,
+			method: 'get'
+		}, this.tree.loadOptions(this)), this.loadOptions), options);
+		if(options.json) return success(options.json);
+		new Request.JSON(options).send();
+		return this;
 	}
 	
 });
 /*
 ---
  
-name: Mif.Tree.KeyNav
-description: Mif.Tree.KeyNav
+name: Mif.TreeGrid
+description: Mif.Tree base Class
 license: MIT-Style License (http://mifjs.net/license.txt)
 copyright: Anton Samoylov (http://mifjs.net)
 authors: Anton Samoylov (http://mifjs.net)
-requires: Mif.Tree
-provides: Mif.Tree.KeyNav
+requires: [Mif.Tree/Mif.Tree, Mif.Tree/Mif.Tree.Node, Mif.Tree/Mif.Tree.Selection, Mif.Tree/Mif.Tree.Hover, Mif.Tree/Mif.Tree.Draw, Mif.Tree/Mif.Tree.Load]
+provides: Mif.TreeGrid
  
 ...
 */
 
-Mif.Tree.prototype.KeyNav = Mif.Tree.KeyNav = new Class({
+Mif.TreeGrid = new Class({
 	
-	initialize: function(tree){
-		this.tree = tree;
-		if(tree.keynav) return;
-		tree.keynav = this;
-		this.bound = {
-			action: this.action.bind(this),
-			attach: this.attach.bind(this),
-			detach: this.detach.bind(this)
-		};
-		tree.addEvents({
-			'focus': this.bound.attach,
-			'blur': this.bound.detach
-		});
-	},
+	version: 'dev',
 	
-	attach: function(){
-		var event = Browser.Engine.trident || Browser.Engine.webkit ? 'keydown' : 'keypress';
-		document.addEvent(event, this.bound.action);
-	},
-	
-	detach: function(){
-		var event = Browser.Engine.trident || Browser.Engine.webkit ? 'keydown' : 'keypress';
-		document.removeEvent(event, this.bound.action);
-	},
-	
-	action: function(event){
-		if(!['down','left','right','up', 'pgup', 'pgdown', 'end', 'home'].contains(event.key)) return;
-		var tree = this.tree;
-		if(!tree.selected){
-			tree.select(tree.forest ? tree.root.getFirst() : tree.root);
-		}else{
-			var current = tree.selected;
-			switch (event.key){
-				case 'down': this.goForward(current);event.stop();break;  
-				case 'up': this.goBack(current);event.stop();break;   
-				case 'left': this.goLeft(current);event.stop();break;
-				case 'right': this.goRight(current);event.stop();break;
-				case 'home': this.goStart(current);event.stop();break;
-				case 'end': this.goEnd(current);event.stop();break;
-				case 'pgup': this.goPageUp(current);event.stop();break;
-				case 'pgdown': this.goPageDown(current);event.stop();break;
-			}
-		}
-		tree.scrollTo(tree.selected, false);
-	},
+	Extends: Mif.Tree
 
-	goForward: function(current){
-		var forward = current.getNextVisible();
-		if(forward) this.tree.select(forward);
-	},
+});
+/*
+---
+ 
+name: Mif.TreeGrid.Node
+description: Mif.TreeGrid.Node
+license: MIT-Style License (http://mifjs.net/license.txt)
+copyright: Anton Samoylov (http://mifjs.net)
+authors: Anton Samoylov (http://mifjs.net)
+requires: Mif.TreeGrid
+provides: Mif.TreeGrid.Node
+ 
+...
+*/
+
+Mif.TreeGrid.prototype.Node = Mif.TreeGrid.Node = new Class({
+
+	Extends: Mif.Tree.Node
 	
-	goBack: function(current){
-		var back = current.getPreviousVisible();
-		if (back) this.tree.select(back);
-	},
-	
-	goLeft: function(current){
-		if(current.isRoot()){
-			if(current.isOpen()){
-				current.toggle();
+});
+/*
+---
+ 
+name: Mif.TreeGrid.Load
+description: load tree from json
+license: MIT-Style License (http://mifjs.net/license.txt)
+copyright: Anton Samoylov (http://mifjs.net)
+authors: Anton Samoylov (http://mifjs.net)
+requires: Mif.TreeGrid
+provides: Mif.TreeGrid.Load
+ 
+...
+*/
+
+Mif.TreeGrid.implement({
+		
+	readJSON: function(children, parent){
+		for( var i = children.length; i--; ){
+			var child = children[i];
+			var subChildren = child.children;
+			var node = new this.Node({
+				tree: this,
+				parentNode: parent
+			}, child);
+			if( this.forest || parent != undefined){
+				parent.children.unshift(node);
 			}else{
-				return false;
+				this.root = node;
 			}
-		}else{
-			if( current.hasChildren(true) && current.isOpen() ){
-				current.toggle();
-			}else{
-				if(current.tree.forest && current.getParent().isRoot()) return false;
-				return this.tree.select(current.getParent());
+			if(subChildren && subChildren.length){
+				this.readJSON(subChildren, node);
 			}
 		}
+		if(parent) parent.property.loaded = true;
+		//this.fireEvent('loadChildren', parent);
+	}
+	
+});
+/*
+---
+ 
+name: Mif.TreeGrid.Draw
+description: convert javascript tree object to html
+license: MIT-Style License (http://mifjs.net/license.txt)
+copyright: Anton Samoylov (http://mifjs.net)
+authors: Anton Samoylov (http://mifjs.net)
+requires: Mif.TreeGrid
+provides: Mif.TreeGrid.Draw
+ 
+...
+*/
+
+Mif.Tree.implement({
+
+	getHTML: function(node, html){
+		var prefix = 'mif-tree-';
+		var checkbox;
+		if(node.property.checked != undefined){
+			if(!node.hasCheckbox) node.property.checked='nochecked';
+			checkbox = '<span class="mif-tree-checkbox mif-tree-node-' + node.property.checked+'" uid="' + node.UID + '"></span>';
+		}else{
+			checkbox = '';
+		}
+		html = html || [];
+		html.push(
+		'<div class="mif-tree-node ',(node.isLast() ? 'mif-tree-node-last' : ''),'"'+(node.property.hidden ? ' style="display:none"' : '') + ' id="',prefix,node.UID,'">',
+			'<span class="mif-tree-node-wrapper ',node.property.cls,(node.property.selected ? ' mif-tree-node-selected' : ''),'" uid="',node.UID,'">',
+				'<span class="mif-tree-toggle mif-tree-toggle-',node.getToggleType(),'" uid="',node.UID,'"></span>',
+				checkbox,
+				'<span class="mif-tree-icon ',(node.property.closeIconUrl?'" style="background-image: url(' + node.property.closeIconUrl + ')" ': node.property.closeIcon+'"'),' uid="',node.UID,'"></span>',
+				'<span class="mif-tree-name" uid="',node.UID,'">',node.property.name,'</span>',
+			'</span>',
+		'</div>',
+		'<div class="mif-tree-children ',(node.isLast() ? 'mif-tree-children-last' : ''),'" style="display:none"></div>'
+		);
+		return html;
+	},
+	
+	drawChildren: function(parent, container){
+		parent.open = true;
+		parent.$draw = true;
+		var html = [];
+		var children = parent.children;
+		for(var i = 0, l = children.length; i < l; i++){
+			this.getHTML(children[i], html);
+		}
+		container = container || parent.getDOM('children');
+		container.set('html', html.join(''));
+		parent.tree.fireEvent('drawChildren',[parent]);
+	},
+	
+	drawRoot: function(){
+		var domRoot = this.drawNode(this.root);
+		//console.log(tree.wrapper, domRoot);
+		//domRoot.inject(tree.wrapper, 'inside');
+		this.wrapper.adopt(domRoot);
+		this.$draw = true;
+		this.fireEvent('drawRoot');
+	},
+	
+	drawForestRoot: function(){
+		var container = new Element('div').addClass('mif-tree-children-root').inject(this.wrapper);
+		console.log(container);
+		this.drawChildren(this.root, container);
+	},
+	
+	drawNode: function(node){
+		return new Element('div').set('html', this.getHTML(node).join('')).getChildren();
+	},
+	
+	isUpdatable: function(node){
+		if(
+			(!node || !node.tree) ||
+			(node.getParent() && !node.getParent().$draw) || 
+			(node.isRoot() && (!node.tree.$draw || node.tree.forest)) 
+		) return false;
 		return true;
 	},
 	
-	goRight: function(current){
-		if(!current.hasChildren(true) && !current.property.loadable){
-			return false;
-		}else if(!current.isOpen()){
-			return current.toggle();
-		}else{
-			return this.tree.select(current.getFirst(true));
-		}
-	},
-	
-	goStart: function(){
-		this.tree.select(this.tree.$index[0]);
-	},
-	
-	goEnd: function(){
-		this.tree.select(this.tree.$index.getLast());
-	},
-	
-	goPageDown: function(current){
-		var tree = this.tree;
-		var count = (tree.container.clientHeight/tree.height).toInt() - 1;
-		var newIndex = Math.min(tree.$index.indexOf(current) + count, tree.$index.length - 1);
-		tree.select(tree.$index[newIndex]);
-	},
-	
-	goPageUp: function(current){
-		var tree = this.tree;
-		var count = (tree.container.clientHeight/tree.height).toInt() - 1;
-		var newIndex = Math.max(tree.$index.indexOf(current) - count, 0);
-		tree.select(tree.$index[newIndex]);
-	}
-	
-});
-/*
----
-
-name: Mif.Tree.Sort
-description: Mif.Tree.Sort
-license: MIT-Style License (http://mifjs.net/license.txt)
-copyright: Anton Samoylov (http://mifjs.net)
-authors: Anton Samoylov (http://mifjs.net)
-requires: Mif.Tree
-provides: Mif.Tree.Sort
-
-...
-*/
-
-Mif.Tree.implement({
-	
-	initSortable: function(sortFunction){
-		this.sortable = true;
-		this.sortFunction = sortFunction||function(node1, node2){
-			if(node1.name > node2.name){
-				return 1;
-			}else if(node1.name < node2.name){
-				return -1;
-			}else{
-				return 0;
-			}
-		};
-		this.addEvent('loadChildren', function(parent){
-			if(parent) parent.sort();
-		});
-		this.addEvent('structureChange', function(from, to, where, type){
-			from.sort();
-		});
-		return this;
-	}
-	
-});
-
-
-Mif.Tree.Node.implement({
-
-	sort: function(sortFunction){
-		this.children.sort(sortFunction||this.tree.sortFunction);
-		return this;
-	}
-	
-});
-/*
----
- 
-name: Mif.Tree.Transform
-description: implement move/copy/del/add actions
-license: MIT-Style License (http://mifjs.net/license.txt)
-copyright: Anton Samoylov (http://mifjs.net)
-authors: Anton Samoylov (http://mifjs.net)
-requires: Mif.Tree
-provides: Mif.Tree.Transform
- 
-...
-*/
-
-Mif.Tree.Node.implement({
-	
-	inject: function(node, where, elements){//element - internal property
-		where = where || 'inside';
-		var parent = this.parentNode;
-		function getPreviousVisible(node){
-			var previous = node;
-			while(previous){
-				previous = previous.getPrevious();
-				if(!previous) return null;
-				if(!previous.hidden) return previous;
-			}
-			return null;
-		}
-		var previousVisible = getPreviousVisible(this);
-		var type = elements ? 'copy' : 'move';
-		switch(where){
-			case 'after':
-			case 'before':
-				if( node['get' + (where == 'after' ? 'Next' : 'Previous')]() == this ) return false;
-				if(this.parentNode) {
-					this.parentNode.children.erase(this);
-				}
-				this.parentNode = node.parentNode;
-				this.parentNode.children.inject(this, node, where);
-				break;
-			case 'inside':
-				if( node.tree && node.getLast() == this ) return false;
-				if(this.parentNode) {
-					this.parentNode.children.erase(this);
-				}
-				if(node.tree){
-					if(!node.hasChildren()){
-						node.$draw = true;
-						node.property.open = true;
-					}
-					node.children.push(this);
-					this.parentNode = node;
-				}else{
-					node.root = this;
-					this.parentNode = null;
-					node.fireEvent('drawRoot');
-				}
-				break;
-		}		
-		var tree = node.tree||node;
-		if(this == this.tree.root){
-			this.tree.root = false;
-		}
-		if(this.tree != tree){
-			var oldTree = this.tree;
-			this.recursive(function(){
-				this.tree = tree;
-			});
-		};
-		tree.fireEvent('structureChange', [this, node, where, type]);
-		tree.$getIndex();
-		if(oldTree)	oldTree.$getIndex();
-		tree.updateInject(this, elements);
-		[node, this, parent, previousVisible, getPreviousVisible(this)].each(function(node){
-			tree.update(node);
-		});
-		return this;
-	},
-	
-	copy: function(node, where){
-		if (this.copyDenied) return this;
-		function copy(structure){
-			var node = structure.node;
-			var tree = structure.tree;
-			var options = $unlink({
-				property: node.property,
-				type: node.type,
-				state: node.property,
-				data: node.data
-			});
-			options.property.open = false;
-			var nodeCopy = new tree.Node({
-				parentNode: structure.parentNode,
-				children: [] ,
-				tree: tree
-			}, options);
-			node.children.each(function(child){
-				var childCopy = copy({
-					node: child,
-					parentNode: nodeCopy,
-					tree: tree
-				});
-				nodeCopy.children.push(childCopy);
-			});
-			return nodeCopy;
-		};
-		
-		var nodeCopy = copy({
-			node: this,
-			parentNode: null,
-			tree: node.tree
-		});
-		return nodeCopy.inject(node, where, this.tree.drawNode(nodeCopy));
-	},
-	
-	remove: function(){
-		if (this.removeDenied) return;
-		this.tree.fireEvent('remove', [this]);
-		var parent = this.parentNode, previousVisible=this.getPreviousVisible();
-		if(parent){	
-			parent.children.erase(this);
-		}else if(!this.tree.forest){
-			this.tree.root = null;
-		}
-		this.tree.selected = false;
-		this.getDOM('node').destroy();
-		this.tree.$getIndex();
-		this.tree.update(parent);
-		this.tree.update(previousVisible);
-		this.recursive(function(){
-			Mif.id(null, this.id);
-		});
-		this.tree.mouse.node = false;
-		this.tree.updateHover();
-	}
-	
-});
-
-
-Mif.Tree.implement({
-
-	move: function(from, to, where){
-		if(from.inject(to, where)){
-			this.fireEvent('move', [from, to, where]);
-		}
-		return this;
-	},
-	
-	copy: function(from, to, where){
-		var copy = from.copy(to, where);
-		if(copy){
-			this.fireEvent('copy', [from, to, where, copy]);
-		}
-		return this;
-	},
-	
-	remove: function(node){
-		node.remove();
-		return this;
-	},
-	
-	add: function(node, current, where){
-		if(!(node instanceof this.Node)){
-			node = new this.Node({
-				parentNode: null,
-				tree: this
-			}, node);
-		};
-		node.inject(current, where, this.drawNode(node));
-		this.fireEvent('add', [node, current, where]);
-		return this;
-	}
-	
-});
-/*
----
-
-script: Drag.js
-
-description: The base Drag Class. Can be used to drag and resize Elements using mouse events.
-
-license: MIT-style license
-
-authors:
-- Valerio Proietti
-- Tom Occhinno
-- Jan Kassens
-
-requires:
-- Core:1.2.4/Events
-- Core:1.2.4/Options
-- Core:1.2.4/Element.Event
-- Core:1.2.4/Element.Style
-- /MooTools.More
-
-provides: [Drag]
-...
-
-*/
-
-var Drag = new Class({
-
-	Implements: [Events, Options],
-
-	options: {/*
-		onBeforeStart: $empty(thisElement),
-		onStart: $empty(thisElement, event),
-		onSnap: $empty(thisElement)
-		onDrag: $empty(thisElement, event),
-		onCancel: $empty(thisElement),
-		onComplete: $empty(thisElement, event),*/
-		snap: 6,
-		unit: 'px',
-		grid: false,
-		style: true,
-		limit: false,
-		handle: false,
-		invert: false,
-		preventDefault: false,
-		stopPropagation: false,
-		modifiers: {x: 'left', y: 'top'}
-	},
-
-	initialize: function(){
-		var params = Array.link(arguments, {'options': Object.type, 'element': $defined});
-		this.element = document.id(params.element);
-		this.document = this.element.getDocument();
-		this.setOptions(params.options || {});
-		var htype = $type(this.options.handle);
-		this.handles = ((htype == 'array' || htype == 'collection') ? $$(this.options.handle) : document.id(this.options.handle)) || this.element;
-		this.mouse = {'now': {}, 'pos': {}};
-		this.value = {'start': {}, 'now': {}};
-
-		this.selection = (Browser.Engine.trident) ? 'selectstart' : 'mousedown';
-
-		this.bound = {
-			start: this.start.bind(this),
-			check: this.check.bind(this),
-			drag: this.drag.bind(this),
-			stop: this.stop.bind(this),
-			cancel: this.cancel.bind(this),
-			eventStop: $lambda(false)
-		};
-		this.attach();
-	},
-
-	attach: function(){
-		this.handles.addEvent('mousedown', this.bound.start);
-		return this;
-	},
-
-	detach: function(){
-		this.handles.removeEvent('mousedown', this.bound.start);
-		return this;
-	},
-
-	start: function(event){
-		if (event.rightClick) return;
-		if (this.options.preventDefault) event.preventDefault();
-		if (this.options.stopPropagation) event.stopPropagation();
-		this.mouse.start = event.page;
-		this.fireEvent('beforeStart', this.element);
-		var limit = this.options.limit;
-		this.limit = {x: [], y: []};
-		for (var z in this.options.modifiers){
-			if (!this.options.modifiers[z]) continue;
-			if (this.options.style) this.value.now[z] = this.element.getStyle(this.options.modifiers[z]).toInt();
-			else this.value.now[z] = this.element[this.options.modifiers[z]];
-			if (this.options.invert) this.value.now[z] *= -1;
-			this.mouse.pos[z] = event.page[z] - this.value.now[z];
-			if (limit && limit[z]){
-				for (var i = 2; i--; i){
-					if ($chk(limit[z][i])) this.limit[z][i] = $lambda(limit[z][i])();
-				}
-			}
-		}
-		if ($type(this.options.grid) == 'number') this.options.grid = {x: this.options.grid, y: this.options.grid};
-		this.document.addEvents({mousemove: this.bound.check, mouseup: this.bound.cancel});
-		this.document.addEvent(this.selection, this.bound.eventStop);
-	},
-
-	check: function(event){
-		if (this.options.preventDefault) event.preventDefault();
-		var distance = Math.round(Math.sqrt(Math.pow(event.page.x - this.mouse.start.x, 2) + Math.pow(event.page.y - this.mouse.start.y, 2)));
-		if (distance > this.options.snap){
-			this.cancel();
-			this.document.addEvents({
-				mousemove: this.bound.drag,
-				mouseup: this.bound.stop
-			});
-			this.fireEvent('start', [this.element, event]).fireEvent('snap', this.element);
-		}
-	},
-
-	drag: function(event){
-		if (this.options.preventDefault) event.preventDefault();
-		this.mouse.now = event.page;
-		for (var z in this.options.modifiers){
-			if (!this.options.modifiers[z]) continue;
-			this.value.now[z] = this.mouse.now[z] - this.mouse.pos[z];
-			if (this.options.invert) this.value.now[z] *= -1;
-			if (this.options.limit && this.limit[z]){
-				if ($chk(this.limit[z][1]) && (this.value.now[z] > this.limit[z][1])){
-					this.value.now[z] = this.limit[z][1];
-				} else if ($chk(this.limit[z][0]) && (this.value.now[z] < this.limit[z][0])){
-					this.value.now[z] = this.limit[z][0];
-				}
-			}
-			if (this.options.grid[z]) this.value.now[z] -= ((this.value.now[z] - (this.limit[z][0]||0)) % this.options.grid[z]);
-			if (this.options.style) {
-				this.element.setStyle(this.options.modifiers[z], this.value.now[z] + this.options.unit);
-			} else {
-				this.element[this.options.modifiers[z]] = this.value.now[z];
-			}
-		}
-		this.fireEvent('drag', [this.element, event]);
-	},
-
-	cancel: function(event){
-		this.document.removeEvent('mousemove', this.bound.check);
-		this.document.removeEvent('mouseup', this.bound.cancel);
-		if (event){
-			this.document.removeEvent(this.selection, this.bound.eventStop);
-			this.fireEvent('cancel', this.element);
-		}
-	},
-
-	stop: function(event){
-		this.document.removeEvent(this.selection, this.bound.eventStop);
-		this.document.removeEvent('mousemove', this.bound.drag);
-		this.document.removeEvent('mouseup', this.bound.stop);
-		if (event) this.fireEvent('complete', [this.element, event]);
-	}
-
-});
-
-Element.implement({
-
-	makeResizable: function(options){
-		var drag = new Drag(this, $merge({modifiers: {x: 'width', y: 'height'}}, options));
-		this.store('resizer', drag);
-		return drag.addEvent('drag', function(){
-			this.fireEvent('resize', drag);
-		}.bind(this));
-	}
-
-});
-/*
----
-
-script: Drag.Move.js
-
-description: A Drag extension that provides support for the constraining of draggables to containers and droppables.
-
-license: MIT-style license
-
-authors:
-- Valerio Proietti
-- Tom Occhinno
-- Jan Kassens
-- Aaron Newton
-- Scott Kyle
-
-requires:
- - Core:1.2.4/Element.Dimensions
- - /Drag
-
-provides: [Drag.Move]
-
-...
-*/
-
-Drag.Move = new Class({
-
-	Extends: Drag,
-
-	options: {/*
-		onEnter: $empty(thisElement, overed),
-		onLeave: $empty(thisElement, overed),
-		onDrop: $empty(thisElement, overed, event),*/
-		droppables: [],
-		container: false,
-		precalculate: false,
-		includeMargins: true,
-		checkDroppables: true
-	},
-
-	initialize: function(element, options){
-		this.parent(element, options);
-		element = this.element;
-		
-		this.droppables = $$(this.options.droppables);
-		this.container = document.id(this.options.container);
-		
-		if (this.container && $type(this.container) != 'element')
-			this.container = document.id(this.container.getDocument().body);
-		
-		var styles = element.getStyles('left', 'top', 'position');
-		if (styles.left == 'auto' || styles.top == 'auto')
-			element.setPosition(element.getPosition(element.getOffsetParent()));
-		
-		if (styles.position == 'static')
-			element.setStyle('position', 'absolute');
-
-		this.addEvent('start', this.checkDroppables, true);
-
-		this.overed = null;
-	},
-
-	start: function(event){
-		if (this.container) this.options.limit = this.calculateLimit();
-		
-		if (this.options.precalculate){
-			this.positions = this.droppables.map(function(el){
-				return el.getCoordinates();
-			});
-		}
-		
-		this.parent(event);
-	},
-	
-	calculateLimit: function(){
-		var offsetParent = document.id(this.element.getOffsetParent()),
-			containerCoordinates = this.container.getCoordinates(offsetParent),
-			containerBorder = {},
-			elementMargin = {},
-			elementBorder = {},
-			containerMargin = {},
-			offsetParentPadding = {};
-
-		['top', 'right', 'bottom', 'left'].each(function(pad){
-			containerBorder[pad] = this.container.getStyle('border-' + pad).toInt();
-			elementBorder[pad] = this.element.getStyle('border-' + pad).toInt();
-			elementMargin[pad] = this.element.getStyle('margin-' + pad).toInt();
-			containerMargin[pad] = this.container.getStyle('margin-' + pad).toInt();
-			offsetParentPadding[pad] = offsetParent.getStyle('padding-' + pad).toInt();
-		}, this);
-
-		var width = this.element.offsetWidth + elementMargin.left + elementMargin.right,
-			height = this.element.offsetHeight + elementMargin.top + elementMargin.bottom,
-			left = 0,
-			top = 0,
-			right = containerCoordinates.right - containerBorder.right - width,
-			bottom = containerCoordinates.bottom - containerBorder.bottom - height;
-
-		if (this.options.includeMargins){
-			left += elementMargin.left;
-			top += elementMargin.top;
+	update: function(node){
+		if(!this.isUpdatable(node)) return null;
+		if(!node.hasChildren()) node.property.open=false;
+		node.getDOM('toggle').className = 'mif-tree-toggle mif-tree-toggle-'+node.getToggleType();
+		if (node.property.closeIconUrl) {
+			node.getDOM('icon').setStyle('background-image', 'url(' + (node.isOpen() ? node.property.openIconUrl : node.property.closeIconUrl) + ')');
 		} else {
-			right += elementMargin.right;
-			bottom += elementMargin.bottom;
+			node.getDOM('icon').className = 'mif-tree-icon ' + node.property[node.isOpen() ? 'openIcon' : 'closeIcon'];
 		}
-		
-		if (this.element.getStyle('position') == 'relative'){
-			var coords = this.element.getCoordinates(offsetParent);
-			coords.left -= this.element.getStyle('left').toInt();
-			coords.top -= this.element.getStyle('top').toInt();
-			
-			left += containerBorder.left - coords.left;
-			top += containerBorder.top - coords.top;
-			right += elementMargin.left - coords.left;
-			bottom += elementMargin.top - coords.top;
-			
-			if (this.container != offsetParent){
-				left += containerMargin.left + offsetParentPadding.left;
-				top += (Browser.Engine.trident4 ? 0 : containerMargin.top) + offsetParentPadding.top;
-			}
-		} else {
-			left -= elementMargin.left;
-			top -= elementMargin.top;
-			
-			if (this.container == offsetParent){
-				right -= containerBorder.left;
-				bottom -= containerBorder.top;
-			} else {
-				left += containerCoordinates.left + containerBorder.left;
-				top += containerCoordinates.top + containerBorder.top;
-			}
+		node.getDOM('node')[(node.isLastVisible() ? 'add' : 'remove') + 'Class']('mif-tree-node-last');
+		if(node.$loading) return null;
+		var children = node.getDOM('children');
+		if(node.isOpen() && !node.property.hidden){
+			if(!node.$draw) this.drawChildren(node);
+			children.style.display = 'block';
+		}else{
+			children.style.display = 'none';
 		}
-		
-		return {
-			x: [left, right],
-			y: [top, bottom]
-		};
-	},
-
-	checkAgainst: function(el, i){
-		el = (this.positions) ? this.positions[i] : el.getCoordinates();
-		var now = this.mouse.now;
-		return (now.x > el.left && now.x < el.right && now.y < el.bottom && now.y > el.top);
-	},
-
-	checkDroppables: function(){
-		var overed = this.droppables.filter(this.checkAgainst, this).getLast();
-		if (this.overed != overed){
-			if (this.overed) this.fireEvent('leave', [this.element, this.overed]);
-			if (overed) this.fireEvent('enter', [this.element, overed]);
-			this.overed = overed;
-		}
-	},
-
-	drag: function(event){
-		this.parent(event);
-		if (this.options.checkDroppables && this.droppables.length) this.checkDroppables();
-	},
-
-	stop: function(event){
-		this.checkDroppables();
-		this.fireEvent('drop', [this.element, this.overed, event]);
-		this.overed = null;
-		return this.parent(event);
-	}
-
-});
-
-Element.implement({
-
-	makeDraggable: function(options){
-		var drag = new Drag.Move(this, options);
-		this.store('dragger', drag);
-		return drag;
-	}
-
-});
-/*
----
- 
-name: Mif.Tree.Drag
-description: implements drag and drop
-license: MIT-Style License (http://mifjs.net/license.txt)
-copyright: Anton Samoylov (http://mifjs.net)
-authors: Anton Samoylov (http://mifjs.net)
-requires: [Mif.Tree, Mif.Tree.Transform, More/Drag.Move]
-provides: Mif.Tree.Drag
- 
-...
-*/
-
-Mif.Tree.Drag = new Class({
-	
-	Implements: [Events, Options],
-	
-	Extends: Drag,
-	
-	options:{
-		group: 'tree',
-		droppables: [],
-		snap: 4,
-		animate: true,
-		modifier: 'control',//copy
-		startPlace: ['icon', 'name', 'node']
-	},
-
-	initialize: function(tree, options){
-		tree.drag = this;
-		this.setOptions(options);
-		$extend(this, {
-			tree: tree,
-			snap: this.options.snap,
-			groups: [],
-			droppables: [],
-			action: this.options.action
-		});
-		
-		this.groups = $splat(this.options.group);
-		
-		$extend(tree.defaults, {
-			dragDisabled: false
-		});
-
-		this.element = [Mif.Drag.current, Mif.Drag.target, Mif.Drag.where];
-		this.document = tree.wrapper.getDocument();
-		
-		this.selection = (Browser.Engine.trident) ? 'selectstart' : 'mousedown';
-		
-		this.bound = {
-			start: this.start.bind(this),
-			check: this.check.bind(this),
-			drag: this.drag.bind(this),
-			stop: this.stop.bind(this),
-			cancel: this.cancel.bind(this),
-			eventStop: $lambda(false),
-			leave: this.leave.bind(this),
-			enter: this.enter.bind(this),
-			keydown: this.keydown.bind(this)
-		};
-		this.attach();
-		
-		this.addEvent('start', function(){
-			this.groupDroppables();
-			Mif.Tree.Drag.dropZone = this.droppables.contains(this.tree.droppable) ? this.tree.droppable : null;
-			document.addEvent('keydown', this.bound.keydown);
-			this.droppables.each(function(item){
-				item.getElement().addEvents({mouseleave: this.bound.leave, mouseenter: this.bound.enter});
-			}, this);
-			Mif.Drag.current.getDOM('name').addClass('mif-tree-drag-current');
-			this.addGhost();
-		}, true);
-		this.addEvent('complete', function(){
-			document.removeEvent('keydown', this.bound.keydown);
-			this.droppables.each(function(item){
-				item.getElement().removeEvent('mouseleave', this.bound.leave).removeEvent('mouseenter', this.bound.enter);
-			}, this);
-			Mif.Drag.current.getDOM('name').removeClass('mif-tree-drag-current');
-			var dropZone = Mif.Tree.Drag.dropZone;
-			if(!dropZone || Mif.Drag.where == 'notAllowed'){
-				Mif.Tree.Drag.startZone.emptydrop();
-				return;
-			};
-			if(dropZone.onstop) dropZone.onstop();
-			dropZone.beforeDrop();
-		});
+		node.tree.fireEvent('updateNode', node);
+		return node;
 	},
 	
-	groupDroppables: function(){
-		this.groups.each(function(group){
-			this.droppables.combine(Mif.Drop.groups[group]);
-		}, this);
-	},
-
-	attach: function(){
-		this.tree.wrapper.addEvent('mousedown', this.bound.start);
-		return this;
-	},
-
-	detach: function(){
-		this.tree.wrapper.removeEvent('mousedown', this.bound.start);
-		return this;
-	},
-	
-	dragTargetSelect: function(){
-		function addDragTarget(){
-			Mif.Drag.current.getDOM('name').addClass('mif-tree-drag-current');
-		}
-		function removeDragTarget(){
-			Mif.Drag.current.getDOM('name').removeClass('mif-tree-drag-current');
-		}
-		this.addEvent('start',addDragTarget.bind(this));
-		this.addEvent('beforeComplete',removeDragTarget.bind(this));
-	},
-	
-	leave: function(event){
-		var dropZone = Mif.Tree.Drag.dropZone;
-		if(dropZone){
-			dropZone.where = 'notAllowed';
-			Mif.Drag.ghost.firstChild.className = 'mif-tree-ghost-icon mif-tree-ghost-' + dropZone.where;
-			if(dropZone.onleave) dropZone.onleave();
-			Mif.Tree.Drag.dropZone = false;
-		}
-		
-		var relatedZone = this.getZone(event.relatedTarget);
-		if(relatedZone) this.enter(null, relatedZone);
-	},
-	
-	enter: function(event, zone){
-		if(event) zone = this.getZone(event.target);
-		var dropZone = Mif.Tree.Drag.dropZone;
-		if(dropZone && dropZone.onleave) dropZone.onleave();
-		Mif.Tree.Drag.dropZone = zone;
-		if(zone.onenter) zone.onenter();
-	},
-	
-	getZone: function(target){//private leave/enter
-		if(!target) return false;
-		var parent = $(target);
-		do{
-			for(var l = this.droppables.length;l--;){
-				var zone = this.droppables[l];
-				if( parent == zone.getElement() ) {
-					return zone;
-				}
-			}
-			parent = parent.getParent();
-		}while(parent);
-		return false;
-	},
-	
-	keydown: function(event){
-		if(event.key == 'esc') {
-			var zone = Mif.Tree.Drag.dropZone;
-			if(zone) zone.where = 'notAllowed';
-			this.stop(event);
-		}
-	},
-	
-	start: function(event){//mousedown
-		if (this.options.preventDefault) event.preventDefault();
-		this.fireEvent('beforeStart', this.element);
-		//
-		
-		var target = this.tree.mouse.target;
-		if(!target) return;
-		Mif.Drag.current = $splat(this.options.startPlace).contains(target) ? this.tree.mouse.node : false;
-		if(!Mif.Drag.current || Mif.Drag.current.dragDisabled) {
+	updateInject: function(node, elements){
+		if(!this.isUpdatable(node)) return;
+		elements = elements || [node.getDOM('node'), node.getDOM('children')];
+		if(!elements[0]) elements = this.node(node);
+		var previous = node.getPrevious();
+		if(previous){
+			new Elements([elements[1], elements[0]]).inject(previous.getDOM('children'), 'after');
 			return;
 		}
-		Mif.Drag.current = Mif.Drag.current;
-		Mif.Tree.Drag.startZone = this;
-		
-		this.mouse = {start: event.page};
-		this.document.addEvents({mousemove: this.bound.check, mouseup: this.bound.cancel});
-		this.document.addEvent(this.selection, this.bound.eventStop);
-	},
-	
-	drag: function(event){
-		Mif.Drag.ghost.position({
-			x: event.page.x + 20,
-			y: event.page.y + 20
-		});
-		Mif.Drag.coords = event.page;
-		var dropZone = Mif.Tree.Drag.dropZone;
-		if(!dropZone||!dropZone.ondrag) return;
-		Mif.Tree.Drag.dropZone.ondrag(event);
-		this.fireEvent('drag');
-	},
-	
-	addGhost: function(){
-		var ghost = new Element('span').addClass('mif-tree-ghost');
-		var el = this.tree.drawNode(Mif.Drag.current).getFirst()[0].removeClass('mif-tree-node-selected');
-		ghost.adopt(el)
-		.inject(document.body).setStyle('position', 'absolute');
-		new Element('span').inject(ghost, 'top').addClass('mif-tree-ghost-notAllowed');
-		ghost.getLast().getFirst().className = '';
-		Mif.Drag.ghost = ghost;
-	},
-	
-	emptydrop: function(){
-		var current = Mif.Drag.current, target = Mif.Drag.target, where = Mif.Drag.where;
-		var scroll = this.tree.scroll;
-		var complete = function(){
-			scroll.removeEvent('complete', complete);
-			if(this.options.animate){
-				var wrapper = current.getDOM('wrapper');
-				var position = wrapper.getPosition();
-				Mif.Drag.ghost.set('morph',{
-					duration: 'short',
-					onComplete: function(){
-						//Mif.Drag.ghost.dispose();
-						this.fireEvent('emptydrop', this.element);
-					}.bind(this)
-				});
-				Mif.Drag.ghost.morph({left: position.x, top: position.y});
-				return;
-			};
-			Mif.Drag.ghost.dispose();
-			this.fireEvent('emptydrop', this.element);
-			return;
-		}.bind(this);
-		scroll.addEvent('complete', complete);
-		this.tree.select(Mif.Drag.current);
-		this.tree.scrollTo(Mif.Drag.current);
-	}
-	
-});
-
-Mif.Tree.implement({
-	
-	makeDraggable: function(options){
-		new Mif.Tree.Drag(this, options);
-		if(this.options.droppable && Mif.Tree.Drop) new Mif.Tree.Drop(this, this.options.droppable); 
-		return this;
+		var container;
+		if(node.tree.forest && node.parentNode.isRoot()){
+			container = node.tree.wrapper.getElement('.mif-tree-children-root');
+		}else if(node.tree.root == node){
+			container = node.tree.wrapper;
+		}else{
+			container = node.parentNode.getDOM('children');
+		}
+		new Elements([elements[1], elements[0]]).inject(container, 'top');
 	}
 	
 });
 /*
 ---
  
-name: Mif.Tree.Drop
-description: tree droppable
+name: Mif.TreeGrid.Sheet
+description: Mif.Tree styles
 license: MIT-Style License (http://mifjs.net/license.txt)
 copyright: Anton Samoylov (http://mifjs.net)
 authors: Anton Samoylov (http://mifjs.net)
-requires: [Mif.Tree, Mif.Tree.Transform, More/Drag.Move]
-provides: Mif.Tree.Drop
+requires: Mif.TreeGrid.Image
+provides: Mif.TreeGrid.Sheet
  
 ...
 */
 
-Mif.Tree.Drop = new Class({
-	
-	Implements: [Events, Options],
-	
-	options:{
-		group: 'tree',
-		animate: true,
-		open: 600,//time to open node
-		scrollDelay: 10,
-		scrollSpeed: 0.05,
-		modifier: 'control',//copy
-		allowContainerDrop: true
-	},
-
-	initialize: function(tree, options){
-		tree.droppable = this;
-		this.setOptions(options);
-		$extend(this, {
-			tree: tree,
-			action: this.options.action,
-			groups: []
-		});
-		$extend(tree.defaults, {
-			dropDenied: []
-		});
-		this.addToGroups(this.options.group);
-		function root(){
-			tree.root.dropDenied.combine(['before', 'after']);
-		};
-		if(!tree.root){
-			tree.addEvent('drawRoot', root);
-		}else{
-			root();
-		};
-		this.pointer = new Element('div').addClass('mif-tree-pointer').inject(tree.wrapper).set('html', '<div class="left"></div><div class="right"></div>');
-	},
-	
-	addToGroups: function(groups){
-		groups = $splat(groups);
-		this.groups.combine(groups);
-		groups.each(function(group){
-			Mif.Drop.groups[group] = (Mif.Drop.groups[group] || []).include(this);
-		}, this);
-	},
-	
-	getElement: function(){
-		return this.tree.wrapper;
-	},
-	
-	onleave: function(){
-		this.clean();
-		$clear(this.scrolling);
-		this.scrolling = null;
-		Mif.Drag.target = false;
-	},
-	
-	onenter: function(){
-		this.onleave();
-	},
-	
-	overflowScroll: function(){
-		var wrapper = this.tree.wrapper;
-		var top = Mif.Drag.coords.y - this.tree.container.getPosition().y;
-		var bottom = wrapper.clientHeight - top;
-		var sign = 0;
-		var delta;
-		if(top < this.tree.height){
-			delta = top;
-			sign = 1;
-		}else if(bottom < this.tree.height){
-			delta = bottom;
-			sign = -1;
-		};
-		if(delta < 1) sign = 0;
-		if(!sign){
-			$clear(this.scrolling);
-			this.scrolling = null;
-			return;
-		};
-		this.delta = delta;
-		if(!this.scrolling){
-			var start = $time();
-			var scrollTop = wrapper.scrollTop;
-			this.scrolling = function(node){
-				wrapper.scrollTop = wrapper.scrollTop - sign*this.options.scrollSpeed/this.delta * ($time() - start);
-			}.periodical(this.options.scrollDelay, this, [sign]);
-		}
-	},
-
-	ondrag: function(event){
-		this.overflowScroll();
-		if(!this.checkTarget()) return;
-		this.clean();
-		var where = Mif.Drag.where;
-		var target = Mif.Drag.target;
-		var ghostType = where;
-		if(where == 'after' && target && (target.getNext()) || where == 'before' && target.getPrevious()){
-			ghostType = 'between';
-		}
-		Mif.Drag.ghost.firstChild.className = 'mif-tree-ghost-icon mif-tree-ghost-' + ghostType;
-		if(where == 'notAllowed'){
-			return;
-		}
-		if(where == 'inside'){
-			if(target.tree && !target.isOpen() && !this.openTimer && (target.property.loadable || target.hasChildren()) ){
-				this.wrapper = target.getDOM('wrapper').setStyle('cursor', 'progress');
-				this.openTimer = function(){
-					target.toggle();
-					this.clean();
-				}.delay(this.options.open,this);
-			}
-		}else{
-			var wrapper = this.tree.wrapper;
-			var top = this.index*this.tree.height;
-			if(where == 'after') top += this.tree.height;
-			this.pointer.setStyles({
-				display: 'block',
-				left: wrapper.scrollLeft,
-				top: top,
-				width: wrapper.clientWidth
-			});
-		}
-	},
-
-	clean: function(){
-		this.pointer.style.display = 'none';
-		if(this.openTimer){
-			$clear(this.openTimer);
-			this.openTimer = false;
-			this.wrapper.style.cursor = 'inherit';
-			this.wrapper = false;
-		}
-	},
-	
-	checkTarget: function(){
-		this.y = this.tree.mouse.coords.y;
-		var target = this.tree.mouse.node;
-		if(!target){
-			if(this.options.allowContainerDrop && (this.tree.forest || !this.tree.root)){
-				Mif.Drag.target = this.tree.$index.getLast();
-				this.index = this.tree.$index.length-1;
-				if(this.index == -1){
-					Mif.Drag.where = 'inside';
-					Mif.Drag.target = this.tree.root || this.tree;
-				}else{
-					Mif.Drag.where = 'after';
-				}
-			}else{
-				Mif.Drag.target = false;
-				Mif.Drag.where = 'notAllowed';
-			}
-			return true;
-		};
-		if((Mif.Drag.current instanceof this.tree.Node) && Mif.Drag.current.contains(target)){
-			Mif.Drag.target = target;
-			Mif.Drag.where = 'notAllowed';
-			return true;
-		};
-		this.index = Math.floor(this.y/this.tree.height);
-		var delta = this.y - this.index*this.tree.height;
-		var deny = target.dropDenied;
-		if(this.tree.sortable){
-			deny.include('before').include('after');
-		};
-		var where;
-		if(!deny.contains('inside') && delta > (this.tree.height/4) && delta < (3/4*this.tree.height)){
-			where = 'inside';
-		}else{
-			if(delta < this.tree.height/2){
-				if(deny.contains('before')){
-					if(deny.contains('inside')){
-						where = deny.contains('after') ? 'notAllowed' : 'after';
-					}else{
-						where = 'inside';
-					}
-				}else{
-					where = 'before';
-				}
-			}else{
-				if(deny.contains('after')){
-					if(deny.contains('inside')){
-						where = deny.contains('before') ? 'notAllowed' : 'before';
-					}else{
-						where = 'inside';
-					}
-				}else{
-					where = 'after';
-				}
-			}
-		};
-		if(Mif.Drag.where == where && Mif.Drag.target == target) return false;
-		Mif.Drag.where = where; 
-		Mif.Drag.target = target;
-		return true;
-	},
-	
-	beforeDrop: function(){
-		if(this.options.beforeDrop){
-			this.options.beforeDrop.apply(this, [Mif.Drag.current, Mif.Drag.target, Mif.Drag.where]);
-		}else{
-			this.drop();
-		}
-	},
-	
-	drop: function(){
-		var current = Mif.Drag.current, target = Mif.Drag.target, where = Mif.Drag.where;
-		Mif.Drag.ghost.dispose();
-		var action = this.action || (this.tree.key[this.options.modifier] ? 'copy' : 'move');
-		if(Mif.Drag.where == 'inside' && target.tree && !target.isOpen()){
-			if(target.tree) target.toggle();
-			if(target.$loading){
-				var onLoad = function(){
-					this.tree[action](current, target, where);
-					this.tree.select(current).scrollTo(current);
-					this.fireEvent('drop', [current, target, where]);
-					target.removeEvent('load',onLoad);
-				};
-				target.addEvent('load',onLoad);
-				return;
-			};
-		};
-		if(!(current instanceof this.tree.Node )){
-			current = current.toNode(this.tree);
-		}
-		this.tree[action](current, target, where);
-		this.tree.select(current).scrollTo(current);
-		this.fireEvent('drop', [current, target, where]);
-	},
-	
-	onstop: function(){
-		this.clean();
-		$clear(this.scrolling);
-	}
-});
-
-Mif.Tree.prototype.options.droppable = true;
-
-Mif.Tree.implement({
-	
-	makeDroppable: function(options){
-		new Mif.Tree.Drop(this, options);
-		return this;
-	}
-	
-});
-
-/*
----
- 
-name: Mif.Tree.Drop.Element
-description: dom element droppable
-license: MIT-Style License (http://mifjs.net/license.txt)
-copyright: Anton Samoylov (http://mifjs.net)
-authors: Anton Samoylov (http://mifjs.net)
-requires: Mif.Tree.Drop
-provides: Mif.Tree.Drop.Element
- 
-...
-*/
-
-Mif.Tree.Drop.Element=new Class({
-
-	Implements: [Options, Events],
-
-	initialize: function(element, options){
-		
-		this.element=$(element);
-		
-		this.setOptions(options);
-		
-	},
-	
-	getElement: function(){
-		return this.element;
-	},
-	
-	onleave: function(){
-		Mif.Drag.where='notAllowed';
-		Mif.Drag.ghost.firstChild.className='mif-tree-ghost-icon mif-tree-ghost-'+Mif.Drag.where;
-	},
-	
-	onenter: function(){
-		Mif.Drag.where='inside';
-		Mif.Drag.ghost.firstChild.className='mif-tree-ghost-icon mif-tree-ghost-'+Mif.Drag.where;
-	},
-	
-	beforeDrop: function(){
-		if(this.options.beforeDrop){
-			this.options.beforeDrop.apply(this, [this.current, this.trarget, Mif.Drag.where]);
-		}else{
-			this.drop();
-		}
-	},
-	
-	drop: function(){
-		Mif.Drag.ghost.dispose();
-		this.fireEvent('drop', Mif.Drag.current);
-	}
-	
-});
-/*
----
- 
-name: Mif.Tree.Rename
-description: Mif.Tree.Rename
-license: MIT-Style License (http://mifjs.net/license.txt)
-copyright: Anton Samoylov (http://mifjs.net)
-authors: Anton Samoylov (http://mifjs.net)
-requires: Mif.Tree
-provides: Mif.Tree.Rename
- 
-...
-*/
-
-Mif.Tree.implement({
-	
-	attachRenameEvents: function(){
-		this.wrapper.addEvents({
-			click: function(event){
-				if($(event.target).get('tag') == 'input') return;
-				this.beforeRenameComplete();
-			}.bind(this),
-			keydown: function(event){
-				if(event.key == 'enter'){
-					this.beforeRenameComplete();
-				}
-				if(event.key == 'esc'){
-					this.renameCancel();
-				}
-			}.bind(this)
-		});
-	},
-	
-	disableEvents: function(){
-		if(!this.eventStorage) this.eventStorage = new Element('div');
-		this.eventStorage.cloneEvents(this.wrapper);
-		this.wrapper.removeEvents();
-	},
-	
-	enableEvents: function(){
-		this.wrapper.removeEvents();
-		this.wrapper.cloneEvents(this.eventStorage);
-	},
-	
-	getInput: function(){
-		if(!this.input){
-			this.input = new Element('input').addClass('mif-tree-rename');
-			this.input.addEvent('focus',function(){this.select();});
-			Mif.Tree.Rename.autoExpand(this.input);
-		}
-		return this.input;
-	},
-	
-	startRename: function(node){
-		this.unselect();
-		this.disableEvents();
-		this.attachRenameEvents();
-		var input = this.getInput();
-		input.value = node.name;
-		this.renameName = node.getDOM('name');
-		this.renameNode = node;
-		input.setStyle('width', this.renameName.offsetWidth+15);
-		input.replaces(this.renameName);
-		input.focus();
-	},
-	
-	finishRename: function(){
-		this.renameName.replaces(this.getInput());
-	},
-	
-	beforeRenameComplete: function(){
-		if(this.options.beforeRename){
-			var newName = this.getInput().value;
-			var node = this.renameNode;
-			this.options.beforeRename.apply(this, [node, node.name, newName]);
-		}else{
-			this.renameComplete();
-		}
-	},
-		
-	renameComplete: function(){
-		this.enableEvents();
-		this.finishRename();
-		var node = this.renameNode;
-		var oldName = node.name;
-		node.set({
-			property:{
-				name: this.getInput().value
-			}
-		});
-		this.fireEvent('rename', [node, node.name, oldName]);
-		this.select(node);
-	},
-	
-	renameCancel: function(){
-		this.enableEvents();
-		this.finishRename();
-		this.select(this.renameNode);
-	}
-	
-});
-
-Mif.Tree.Node.implement({
-	
-	rename: function(){
-		if (this.property.renameDenied) return;
-		this.tree.startRename(this);
-	}
-	
-});
-
-Mif.Tree.Rename = {
-	
-	autoExpand: function(input){
-		var span = new Element('span').addClass('mif-tree-rename').setStyles({
-			position: 'absolute',
-			left: -2000,
-			top:0,
-			padding: 0
-		}).injectInside(document.body);
-		input.addEvent('keydown',function(event){
-			(function(){
-			input.setStyle('width',Math.max(20, span.set('html', input.value.replace(/\s/g,'&nbsp;')).offsetWidth+15));
-			}).delay(10);
-		});
-	}
-	
-};
-/*
----
- 
-name: Mif.Tree.Checkbox
-description: Mif.Tree.Checkbox
-license: MIT-Style License (http://mifjs.net/license.txt)
-copyright: Anton Samoylov (http://mifjs.net)
-authors: Anton Samoylov (http://mifjs.net)
-requires: Mif.Tree
-provides: Mif.Tree.Checkbox
- 
-...
-*/
-
-Mif.Tree.implement({
-
-	initCheckbox: function(type){
-		this.checkboxType=type||'simple';
-		this.dfltState.checked='unchecked';
-		this.defaults.hasCheckbox=true;
-		this.wrapper.addEvent('click',this.checkboxClick.bind(this));
-		if(this.checkboxType=='simple') return;
-		this.addEvent('loadChildren', function(node){
-			if(!node) return;
-			if(node.property.checked=='checked'){
-				node.recursive(function(){
-					this.property.checked='checked';
-				});
-			}else{
-				node.getFirst().setParentCheckbox(1);
-			}
-		});
-
-	},
-	
-	checkboxClick: function(event){
-		if(this.mouse.target!='checkbox') {return;}
-		this.mouse.node['switch']();
-	},
-	
-	getChecked: function(includePartially){
-		var checked=[];
-		this.root.recursive(function(){
-			var condition = includePartially ? this.property.checked!=='unchecked' : this.property.checked=='checked';
-			if(this.hasCheckbox && condition) checked.push(this);
-		});
-		return checked;
-	}
-
-});
-
-Mif.Tree.Node.implement({
-
-	'switch' : function(state){
-		if(this.property.checked==state||!this.hasCheckbox) return this;
-		var type=this.tree.checkboxType;
-		var checked=(this.property.checked=='checked') ? 'unchecked' : 'checked';
-		if(type=='simple'){
-			this.setCheckboxState(checked);
-			this.tree.fireEvent(checked=='checked' ? 'check' : 'unCheck', this);
-			this.tree.fireEvent('switch', [this, (checked=='checked' ? true : false)]);
-			return this;
-		};
-		this.recursive(function(){
-			this.setCheckboxState(checked);
-		});
-		this.setParentCheckbox();
-		this.tree.fireEvent(checked=='checked' ? 'check' : 'unCheck', this);
-		this.tree.fireEvent('switch', [this, (checked=='checked' ? true : false)]);
-		return this;
-	},
-	
-	setCheckboxState: function(state){
-		if(!this.hasCheckbox) return;
-		var oldState=this.property.checked;
-		this.property.checked=state;
-		if((!this.parentNode&&this.tree.$draw) || (this.parentNode && this.parentNode.$draw)){
-			this.getDOM('checkbox').removeClass('mif-tree-node-'+oldState).addClass('mif-tree-node-'+state);
-		}
-	},
-	
-	setParentCheckbox: function(s){
-		if(!this.hasCheckbox || !this.parentNode || (this.tree.forest && !this.parentNode.parentNode)) return;
-		var parent=this.parentNode;
-		var state='';
-		var children=parent.children;
-		for(var i=children.length; i--; i>0){
-			var child=children[i];
-			if(!child.hasCheckbox) continue;
-			var childState=child.property.checked;
-			if(childState=='partially'){
-				state='partially';
-				break;
-			}else if(childState=='checked'){
-				if(state=='unchecked'){
-					state='partially';
-					break;
-				}
-				state='checked';
-			}else{
-				if(state=='checked'){
-					state='partially';
-					break;
-				}else{
-					state='unchecked';
-				}
-			}
-		}
-		if(parent.property.checked==state ||(s && state=='partially' && parent.property.checked=='checked')){return;};
-		parent.setCheckboxState(state);
-		parent.setParentCheckbox(s);
-	}
-
-});
-/*
----
- 
-name: Mif.Tree.CookieStorage
-description: Mif.Tree.Node
-license: MIT-Style License (http://mifjs.net/license.txt)
-copyright: Anton Samoylov (http://mifjs.net)
-authors: Anton Samoylov (http://mifjs.net)
-requires: Mif.Tree
-provides: Mif.Tree.CookieStorage
- 
-...
-*/
-
-Mif.Tree.CookieStorage = new Class({
-
-	Implements: [Options],
-	
-	options:{
-		store: function(node){
-			return node.property.id;
-		},
-		retrieve: function(value){
-			return Mif.id(value);
-		},
-		event: 'toggle',
-		action: 'toggle'
-	},
-
-	initialize: function(tree, options){
-		this.setOptions(options);
-		this.tree = tree;
-		this.cookie = new Cookie('mif.tree:' + this.options.event + tree.id||'');
-		this.nodes = [];
-		this.initSave();
-	},
-	
-	write: function(){
-		this.cookie.write(JSON.encode(this.nodes));
-	},
-	
-	read: function(){
-		return JSON.decode(this.cookie.read()) || [];
-	},
-	
-	restore: function(data){
-		if(!data){
-			this.restored = this.restored || this.read();
-		}
-		var restored = data || this.restored;
-		for(var i = 0, l = restored.length; i < l; i++){
-			var stored = restored[i];
-			var node = this.options.retrieve(stored);
-			if(node){
-				node[this.options.action](true);
-				restored.erase(stored);
-				l--;
-			}
-		}
-		return restored;
-	},
-	
-	initSave: function(){
-		this.tree.addEvent(this.options.event, function(node, state){
-			var value = this.options.store(node);
-			if(state){
-				this.nodes.include(value);
-			}else{
-				this.nodes.erase(value);
-			}
-			this.write();
-		}.bind(this));
-	}
+Mif.sheet.addRules({
 
 });
